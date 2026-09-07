@@ -1,0 +1,194 @@
+// use prisma-next
+
+// ==========================================
+//                  ENUMS
+// ==========================================
+
+enum BookingStatus {
+  PENDING
+  SLOT_BOOKED
+  ARRIVED           // Gate entry check-in: Aadhaar card verified
+  GROSS_WEIGHED     // First step weighbridge check-in: Vehicle loaded
+  QUALITY_CHECKED   // Quality metrics/lab results saved
+  TARE_WEIGHED      // Second step weighbridge check-out: Vehicle empty (Net weight locked)
+  ACCEPTED          // Grain safely dumped into center storage inventory
+  PAYMENT_INITIATED
+  MONEY_TRANSFERRED
+  REJECTED
+  EXPIRED
+}
+
+enum QualityStatus {
+  PENDING
+  PASSED
+  FAILED
+}
+
+enum PaymentStatus {
+  NOT_STARTED
+  INITIATED
+  CREDITED
+  FAILED
+}
+
+enum SlotStatus {
+  AVAILABLE
+  FULL
+  CLOSED
+}
+
+enum TokenType {
+  EMAIL_VERIFICATION // Used for registration verification magic links
+  PASSWORD_RESET     // Used for forgot password magic links
+}
+
+// ==========================================
+//                 MODELS
+// ==========================================
+
+// 🌾 NEW: Dynamic Crop Catalogue Configuration Table
+model Crop {
+  id               String            @id @default(uuid())
+  name             String            @unique // e.g., "Paddy", "Wheat", "Maize"
+  ussdCode         String            @unique // e.g., "1", "2", "3" to preserve quick USSD menus
+  currentBasePrice Float             // Government Minimum Support Price (MSP) per Kg
+  maxMoisturePct   Float             @default(14.0) // Standard maximum allowed humidity index before deduction/rejection
+  
+  // Relationships
+  bookings         Booking[]
+  centerCrops      CenterOnCrops[]   // Explicit many-to-many junction relationship for center filtering
+
+  createdAt        TimestamptzString @default(now())
+  updatedAt        temporal.updatedAtString()
+}
+
+// Explicit Join Table to handle the Many-to-Many relationship between Centers and Crops
+model CenterOnCrops {
+  centerId         String
+  cropId           String
+
+  center           ProcurementCenter @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  crop             Crop              @relation(fields: [cropId], references: [id], onDelete: Cascade)
+
+  @@id([centerId, cropId])
+}
+
+model ProcurementCenter {
+  id              String     @id @default(uuid())
+  name            String
+  email           String     @unique
+  passwordHash    String
+  isEmailVerified Boolean    @default(false) 
+  
+  // Center Details 
+  pincode         String
+  location        String
+  landmark        String?
+  fullAddress     String?    
+  
+  // Settings 
+  openTime        String     // e.g., "09:00"
+  closeTime       String     // e.g., "17:00"
+  timePerFarmer   Int        // Duration windows for scheduling logic (e.g., 45 mins)
+  minBags         Int        @default(1)
+  
+  // Real Practice Inventory 
+  currentStorageKg Int       @default(0)
+  maxStorageKg     Int       
+  
+  // Relationships
+  acceptedCrops   CenterOnCrops[]   // 🔄 Replaced the raw primitive array with a clean relational link
+  schedules       Schedule[]
+  bookings        Booking[]
+  authTokens      AuthToken[]
+
+  createdAt       TimestamptzString @default(now())
+  updatedAt       temporal.updatedAtString()
+}
+
+// Consolidated Token Management supporting clean user verification parameters
+model AuthToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique   
+  type      TokenType           
+  centerId  String
+  expiresAt TimestamptzString            
+  usedAt    TimestamptzString?           
+
+  center    ProcurementCenter @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  createdAt TimestamptzString @default(now())
+}
+
+// Daily availability slot configurations for a specific procurement center
+model Schedule {
+  id                String     @id @default(uuid())
+  centerId          String
+  date              TimestamptzString   
+  totalCapacity     Int        
+  availableCapacity Int        
+  status            SlotStatus @default(AVAILABLE)
+  
+  // Dynamic Delay System 
+  isSuspended       Boolean    @default(false) 
+  delayMinutes      Int        @default(0)     
+
+  center            ProcurementCenter @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  bookings          Booking[]
+
+  createdAt         TimestamptzString @default(now())
+  updatedAt         temporal.updatedAtString()
+
+  @@unique([centerId, date])
+}
+
+// Farmers' queuing entries, verification markers, and step logs
+model Booking {
+  id             String        @id @default(uuid())
+  token          String        @unique 
+  farmerPhone    String        
+  farmerName     String?       
+  bankAccount    String?       
+  
+  // 🔄 Replaced raw Enum reference with dynamic model relations
+  cropId         String
+  crop           Crop          @relation(fields: [cropId], references: [id])
+  quantity       Int           
+  
+  centerId       String
+  scheduleId     String
+  
+  status         BookingStatus @default(PENDING)
+  qualityStatus  QualityStatus @default(PENDING)
+  paymentStatus  PaymentStatus @default(NOT_STARTED)
+  
+  // Time Allotments
+  allocatedStart TimestamptzString?
+  allocatedEnd   TimestamptzString?
+  
+  // 1. Identity Stage Checkpoints 
+  aadhaarChecked Boolean       @default(false)
+  verifiedAt     TimestamptzString?                     
+  
+  // 2. Weight Scale Checkpoints 
+  grossWeightKg  Float?        
+  tareWeightKg   Float?        
+  netWeightKg    Float?        
+  weighedAt      TimestamptzString?
+
+  // 3. Quality Assurance Checkpoints 
+  moisturePct    Float?        
+  foreignMatterPct Float?      
+  qualityCheckedAt TimestamptzString?
+
+  // 4. Financial Processing Checkpoints 
+  basePricePerKg  Float?        
+  totalDeductions Float?       
+  finalPayout     Float?        
+  paymentRefId    String?       
+
+  center         ProcurementCenter @relation(fields: [centerId], references: [id])
+  schedule       Schedule          @relation(fields: [scheduleId], references: [id])
+
+  createdAt      TimestamptzString @default(now())
+  updatedAt      temporal.updatedAtString()
+}
