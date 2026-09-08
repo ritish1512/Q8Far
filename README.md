@@ -16,6 +16,18 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Farmer SMS notifications
+
+Set these server-side environment variables to enable Africa's Talking SMS notifications for booking approval, queue delays, and SOS freezes:
+
+```env
+AFRICASTALKING_USERNAME=your-username
+AFRICASTALKING_API_KEY=your-api-key
+AFRICASTALKING_SENDER_ID=your-sender-id
+```
+
+`AFRICASTALKING_SENDER_ID` is optional. Notifications are skipped when the username or API key is not configured.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

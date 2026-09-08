@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { db } from "@/prisma/db";
+import { activeBookingStatuses, sendFarmerSms } from "@/app/lib/farmer-sms";
 
 const requestSchema = z.object({
-  action: z.enum(["lookup", "approve", "reject", "checkIn", "gross", "quality", "tare", "accept", "initiatePayment", "completePayment", "freeze", "delay"]),
+  action: z.enum(["lookup", "approve", "reject", "checkIn", "gross", "quality", "tare", "accept", "initiatePayment", "completePayment", "freeze", "resume", "delay"]),
   bookingId: z.string().optional(),
   token: z.string().optional(),
   verificationPhone: z.string().optional(),
@@ -116,13 +117,49 @@ export async function POST(req: NextRequest) {
   const context = await getContext(centerId);
   if (!context.center || !context.schedule) return NextResponse.json({ error: "No schedule exists for today." }, { status: 404 });
 
-  if (action === "freeze" || action === "delay") {
-    if (context.schedule.isSuspended) return NextResponse.json({ error: "The queue is already frozen." }, { status: 409 });
-    await db.orm.public.Schedule.where({ id: context.schedule.id }).update(
-      action === "freeze"
-        ? { isSuspended: true }
-        : { delayMinutes: context.schedule.delayMinutes + 15 },
+  if (action === "resume") {
+    if (!context.schedule.isSuspended) return NextResponse.json({ error: "The queue is already active." }, { status: 409 });
+
+    await db.orm.public.Schedule.where({ id: context.schedule.id }).update({ isSuspended: false });
+
+    const affectedBookings = await db.orm.public.Booking
+      .where({ centerId, scheduleId: context.schedule.id })
+      .where((booking) => booking.status.in(activeBookingStatuses))
+      .all();
+
+    await Promise.all(
+      affectedBookings.map((booking) => sendFarmerSms(
+        booking.farmerPhone,
+        "Your procurement center has resumed work after the SOS pause. Please follow your booking schedule.",
+      )),
     );
+
+    return NextResponse.json({ message: "Queue resumed. Procurement work can continue." });
+  }
+
+  if (action === "freeze" || action === "delay") {
+    if (context.schedule.isSuspended) return NextResponse.json({ error: "The queue is already frozen. Resume it before changing the delay." }, { status: 409 });
+    const scheduleUpdate = action === "freeze"
+      ? { isSuspended: true }
+      : { delayMinutes: context.schedule.delayMinutes + 15 };
+
+    await db.orm.public.Schedule.where({ id: context.schedule.id }).update(
+      scheduleUpdate,
+    );
+
+    const affectedBookings = await db.orm.public.Booking
+      .where({ centerId, scheduleId: context.schedule.id })
+      .where((booking) => booking.status.in(activeBookingStatuses))
+      .all();
+
+    const message = action === "freeze"
+      ? "SOS alert: procurement at your booked center is temporarily paused. Please wait for further updates."
+      : `Your procurement center has delayed today's queue by 15 minutes. Your updated arrival time is ${context.schedule.delayMinutes + 15} minutes later than scheduled.`;
+
+    await Promise.all(
+      affectedBookings.map((booking) => sendFarmerSms(booking.farmerPhone, message)),
+    );
+
     return NextResponse.json({ message: action === "freeze" ? "Queue frozen." : "All upcoming times delayed by 15 minutes." });
   }
 
@@ -168,6 +205,10 @@ export async function POST(req: NextRequest) {
     }
 
     await db.orm.public.Booking.where({ id: booking.id }).update({ status: "SLOT_BOOKED" });
+    await sendFarmerSms(
+      booking.farmerPhone,
+      `Your Q8Far booking ${booking.token} has been approved. Please arrive at your scheduled procurement center at the assigned time.`,
+    );
     return NextResponse.json({ message: "Farmer verified. Booking added to the next farmers queue." });
   }
 

@@ -29,7 +29,7 @@ type ScheduleData = {
   payments: Booking[];
 };
 
-type Action = "lookup" | "approve" | "reject" | "checkIn" | "gross" | "quality" | "tare" | "accept" | "initiatePayment" | "completePayment" | "freeze" | "delay";
+type Action = "lookup" | "approve" | "reject" | "checkIn" | "gross" | "quality" | "tare" | "accept" | "initiatePayment" | "completePayment" | "freeze" | "resume" | "delay";
 
 export default function CurrentSchedule() {
   const [data, setData] = useState<ScheduleData | null>(null);
@@ -167,6 +167,7 @@ export default function CurrentSchedule() {
             <p className="text-xs text-slate-500">Current delay: {data.schedule.delayMinutes} minutes</p>
             <button type="button" disabled={loading || data.schedule.isSuspended} onClick={() => void submitAction("freeze")} className="w-full bg-agri-tertiary text-white py-2.5 rounded-sm text-xs font-semibold disabled:bg-slate-300">Freeze queue</button>
             <button type="button" disabled={loading || data.schedule.isSuspended} onClick={() => void submitAction("delay")} className="w-full border border-agri-secondary text-agri-secondary py-2.5 rounded-sm text-xs font-semibold disabled:opacity-50">Add 15 minutes delay</button>
+            <button type="button" disabled={loading || !data.schedule.isSuspended} onClick={() => void submitAction("resume")} className="w-full bg-agri-primary text-white py-2.5 rounded-sm text-xs font-semibold disabled:bg-slate-300">Resume queue</button>
           </section>
         </aside>
       </div>

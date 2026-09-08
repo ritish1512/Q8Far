@@ -86,38 +86,30 @@ async function findEligibleCenters(
   crop: string,
   pincode: string
 ) {
-  const [allCenters, crops, centerCropLinks] =
-    await Promise.all([
-      db.orm.public.ProcurementCenter.all(),
-      db.orm.public.Crop.all(),
-      db.orm.public.CenterOnCrops.all(),
-    ]);
+  const selectedCrop = await db.orm.public.Crop
+    .where({ name: crop.toUpperCase() })
+    .first();
 
-  const selectedCrop = crops.find(
-    (cropRecord) =>
-      cropRecord.name.toUpperCase() === crop.toUpperCase()
+  if (!selectedCrop) {
+    return [];
+  }
+
+  const cropCenters = db.orm.public.ProcurementCenter.where(
+    (center) => center.acceptedCrops.some(
+      (centerCrop) => centerCrop.cropId.eq(selectedCrop.id)
+    )
   );
 
-  const eligibleCenterIds = new Set(
-    centerCropLinks
-      .filter((link) => link.cropId === selectedCrop?.id)
-      .map((link) => link.centerId)
-  );
+  const exactMatches = await cropCenters
+    .where((center) => center.pincode.eq(pincode))
+    .all();
 
-  const cropCenters = allCenters.filter((center) =>
-    eligibleCenterIds.has(center.id)
-  );
-
-  const exactMatches = cropCenters.filter(
-    (center) => center.pincode === pincode
-  );
-
-  const partialMatches = cropCenters.filter(
-    (center) =>
-      center.pincode !== pincode &&
-      center.pincode.substring(0, PINCODE_PREFIX_LENGTH) ===
-        pincode.substring(0, PINCODE_PREFIX_LENGTH)
-  );
+  const partialMatches = await cropCenters
+    .where((center) => center.pincode.like(
+      `${pincode.substring(0, PINCODE_PREFIX_LENGTH)}%`
+    ))
+    .where((center) => center.pincode.neq(pincode))
+    .all();
 
   return [...exactMatches, ...partialMatches];
 }
@@ -165,33 +157,23 @@ async function findNextAvailableSlot(
   center: any,
   schedule: any
 ) {
-  const existingBookings =
-    await db.orm.public.Booking.all();
-
-  const centerBookings = existingBookings
-    .filter(
-      (booking) =>
-        booking.centerId === center.id &&
-        booking.scheduleId === schedule.id &&
-        [
-          "PENDING",
-          "SLOT_BOOKED",
-          "ARRIVED",
-          "GROSS_WEIGHED",
-          "QUALITY_CHECKED",
-          "TARE_WEIGHED",
-        ].includes(booking.status)
-    )
-    .filter(
-      (booking) =>
-        booking.allocatedStart &&
-        booking.allocatedEnd
-    )
-    .sort(
-      (a, b) =>
-        new Date(a.allocatedStart!).getTime() -
-        new Date(b.allocatedStart!).getTime()
-    );
+  const centerBookings = await db.orm.public.Booking
+    .where({
+      centerId: center.id,
+      scheduleId: schedule.id,
+    })
+    .where((booking) => booking.status.in([
+      "PENDING",
+      "SLOT_BOOKED",
+      "ARRIVED",
+      "GROSS_WEIGHED",
+      "QUALITY_CHECKED",
+      "TARE_WEIGHED",
+    ]))
+    .where((booking) => booking.allocatedStart.isNotNull())
+    .where((booking) => booking.allocatedEnd.isNotNull())
+    .orderBy((booking) => booking.allocatedStart.asc())
+    .all();
 
   const [openHour, openMinute] = center.openTime
     .split(":")
@@ -220,18 +202,12 @@ async function findNextAvailableSlot(
   const durationMinutes = center.timePerFarmer;
 
   for (const booking of centerBookings) {
-  // allocatedStart and allocatedEnd are optional in Prisma,
-  // so make sure they actually exist before creating Date objects.
-  if (!booking.allocatedStart || !booking.allocatedEnd) {
-    continue;
-  }
-
   const bookingStart = new Date(
-    booking.allocatedStart
+    booking.allocatedStart!
   );
 
   const bookingEnd = new Date(
-    booking.allocatedEnd
+    booking.allocatedEnd!
   );
 
   const candidateEnd = new Date(candidateStart);
@@ -535,10 +511,9 @@ Enter Crop Code:
             pincode
           );
 
-        const selectedCrop = (await db.orm.public.Crop.all()).find(
-          (cropRecord) =>
-            cropRecord.name.toUpperCase() === crop.toUpperCase()
-        );
+        const selectedCrop = await db.orm.public.Crop
+          .where({ name: crop.toUpperCase() })
+          .first();
 
         const selectedCenter =
           centers[centerSelectionIdx];
