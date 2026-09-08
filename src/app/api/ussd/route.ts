@@ -87,7 +87,7 @@ async function findEligibleCenters(
   pincode: string
 ) {
   const selectedCrop = await db.orm.public.Crop
-    .where({ name: crop.toUpperCase() })
+    .where((cropRecord) => cropRecord.name.ilike(crop))
     .first();
 
   if (!selectedCrop) {
@@ -527,7 +527,7 @@ Enter Crop Code:
           );
 
         const selectedCrop = await db.orm.public.Crop
-          .where({ name: crop.toUpperCase() })
+          .where((cropRecord) => cropRecord.name.ilike(crop))
           .first();
 
         const selectedCenter =
