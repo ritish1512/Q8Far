@@ -16,7 +16,9 @@ function getSmsClient() {
   const apiKey = process.env.AFRICASTALKING_API_KEY;
 
   if (!username || !apiKey) {
-    console.warn("Africa's Talking SMS is not configured.");
+    console.warn(
+      "Africa's Talking SMS skipped: set AFRICASTALKING_USERNAME and AFRICASTALKING_API_KEY.",
+    );
     return null;
   }
 
@@ -26,16 +28,23 @@ function getSmsClient() {
 
 function toInternationalPhoneNumber(phoneNumber: string) {
   const normalized = phoneNumber.replace(/[\s()-]/g, "");
-  
-  // For sandbox testing, use a mock Kenyan number format
-  if (/^\d{9,10}$/.test(normalized)) {
-    // If it's a 9-10 digit test number, prepend +254 for Africa's Talking Sandbox
-    return `+254${normalized.slice(-9)}`; 
+
+  if (/^07\d{8}$/.test(normalized)) {
+    return `+254${normalized.slice(1)}`;
   }
-  
+
+  if (/^7\d{8}$/.test(normalized)) {
+    return `+254${normalized}`;
+  }
+
+  if (/^2547\d{8}$/.test(normalized)) {
+    return `+${normalized}`;
+  }
+
   if (/^\+\d{10,15}$/.test(normalized)) {
     return normalized;
   }
+
   return null;
 }
 
@@ -56,14 +65,26 @@ export async function sendFarmerSms(
   }
 
   try {
+    console.log("Sending farmer SMS via Africa's Talking:", {
+      recipient,
+      username: process.env.AFRICASTALKING_USERNAME,
+    });
+
     const response = await client.SMS.send({
       to: recipient,
       message,
-      senderId: process.env.AFRICASTALKING_SENDER_ID || undefined,
+      ...(process.env.AFRICASTALKING_SENDER_ID
+        ? { senderId: process.env.AFRICASTALKING_SENDER_ID }
+        : {}),
     });
 
     const recipientStatus = response.SMSMessageData.Recipients[0];
-    if (recipientStatus?.status !== "Success") {
+    if (recipientStatus?.status === "Success") {
+      console.log("Africa's Talking accepted farmer SMS:", {
+        number: recipient,
+        messageId: recipientStatus.messageId,
+      });
+    } else {
       console.error("Africa's Talking SMS was not accepted for delivery.", {
         number: recipient,
         status: recipientStatus?.status || "No recipient status returned",
