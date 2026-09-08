@@ -115,16 +115,16 @@ async function findEligibleCenters(
 }
 
 // ============================================================
-// FIND OR CREATE TODAY'S SCHEDULE
+// FIND OR CREATE A SCHEDULE
 // ============================================================
 
-async function getTodaySchedule(center: any) {
-  const today = getToday();
+async function getScheduleForDate(center: any, date: Date) {
+  const dateIso = date.toISOString();
 
   let schedule = await db.orm.public.Schedule
     .where({
       centerId: center.id,
-      date: today.toISOString(),
+      date: dateIso,
     })
     .first();
 
@@ -132,7 +132,7 @@ async function getTodaySchedule(center: any) {
     schedule = await db.orm.public.Schedule.create({
       centerId: center.id,
 
-      date: today.toISOString(),
+      date: dateIso,
 
       totalCapacity: center.maxStorageKg,
 
@@ -149,13 +149,24 @@ async function getTodaySchedule(center: any) {
   return schedule;
 }
 
+async function getTodaySchedule(center: any) {
+  return getScheduleForDate(center, getToday());
+}
+
+function getTomorrow() {
+  const tomorrow = getToday();
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  return tomorrow;
+}
+
 // ============================================================
 // FIND NEXT AVAILABLE TIME
 // ============================================================
 
 async function findNextAvailableSlot(
   center: any,
-  schedule: any
+  schedule: any,
+  earliestStart = new Date()
 ) {
   const centerBookings = await db.orm.public.Booking
     .where({
@@ -198,6 +209,10 @@ async function findNextAvailableSlot(
   candidateStart.setMinutes(
     candidateStart.getMinutes() + schedule.delayMinutes
   );
+
+  if (candidateStart < earliestStart) {
+    candidateStart = new Date(earliestStart);
+  }
 
   const durationMinutes = center.timePerFarmer;
 
@@ -541,7 +556,7 @@ Enter Crop Code:
         // GET TODAY'S SCHEDULE
         // ----------------------------------------------------
 
-        const schedule =
+        let schedule =
           await getTodaySchedule(
             selectedCenter
           );
@@ -598,15 +613,67 @@ Please select another center or day.`,
         // FIND AVAILABLE TIME
         // ----------------------------------------------------
 
-        const slot =
+        const earliestToday = new Date(
+          Date.now() + 2 * 60 * 60 * 1000
+        );
+
+        let slot =
           await findNextAvailableSlot(
             selectedCenter,
-            schedule
+            schedule,
+            earliestToday
           );
 
         if (!slot) {
+          const tomorrowSchedule =
+            await getScheduleForDate(
+              selectedCenter,
+              getTomorrow()
+            );
+
+          if (
+            tomorrowSchedule.isSuspended ||
+            tomorrowSchedule.status === "CLOSED"
+          ) {
+            return new Response(
+              "END No appointment slot is available today, and tomorrow's procurement center is unavailable.",
+              {
+                status: 200,
+                headers: {
+                  "Content-Type": "text/plain",
+                },
+              }
+            );
+          }
+
+          if (
+            estimatedWeightKg >
+            tomorrowSchedule.availableCapacity
+          ) {
+            return new Response(
+              `END No capacity remains today, and tomorrow has insufficient capacity.
+Estimated load: ${estimatedWeightKg}kg
+Available tomorrow: ${tomorrowSchedule.availableCapacity}kg`,
+              {
+                status: 200,
+                headers: {
+                  "Content-Type": "text/plain",
+                },
+              }
+            );
+          }
+
+          schedule = tomorrowSchedule;
+          slot = await findNextAvailableSlot(
+            selectedCenter,
+            schedule,
+            new Date(schedule.date)
+          );
+        }
+
+        if (!slot) {
           return new Response(
-            "END No appointment slot is available today. Please try another center or day.",
+            "END No appointment slot is available today or tomorrow. Please try another center or day.",
             {
               status: 200,
               headers: {
