@@ -12,12 +12,12 @@ const activeBookingStatuses = [
 let smsClient: ReturnType<typeof AfricasTalking> | null = null;
 
 function getSmsClient() {
-  const username = process.env.AFRICASTALKING_USERNAME;
-  const apiKey = process.env.AFRICASTALKING_API_KEY;
+  const username = process.env.AT_USERNAME;
+  const apiKey = process.env.AT_API_KEY;
 
   if (!username || !apiKey) {
     console.warn(
-      "Africa's Talking SMS skipped: set AFRICASTALKING_USERNAME and AFRICASTALKING_API_KEY.",
+      "Africa's Talking SMS skipped: set AT_USERNAME and AT_API_KEY.",
     );
     return null;
   }
@@ -28,6 +28,14 @@ function getSmsClient() {
 
 function toInternationalPhoneNumber(phoneNumber: string) {
   const normalized = phoneNumber.replace(/[\s()-]/g, "");
+
+  if (/^[6-9]\d{9}$/.test(normalized)) {
+    return `+91${normalized}`;
+  }
+
+  if (/^91[6-9]\d{9}$/.test(normalized)) {
+    return `+${normalized}`;
+  }
 
   if (/^07\d{8}$/.test(normalized)) {
     return `+254${normalized.slice(1)}`;
@@ -67,7 +75,7 @@ export async function sendFarmerSms(
   try {
     console.log("Sending farmer SMS via Africa's Talking:", {
       recipient,
-      username: process.env.AFRICASTALKING_USERNAME,
+      username: process.env.AT_USERNAME,
     });
 
     const response = await client.SMS.send({

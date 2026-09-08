@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/prisma/db";
 import { randomInt } from "node:crypto";
+import { sendFarmerSms } from "@/app/lib/farmer-sms";
 
 // ============================================================
 // CONFIGURATION
@@ -758,6 +759,11 @@ Available tomorrow: ${tomorrowSchedule.availableCapacity}kg`,
           allocatedEnd:
             slot.end.toISOString(),
         });
+
+        await sendFarmerSms(
+          phoneNumber,
+          `Q8Far booking received. Token: ${bookingToken}. Center: ${selectedCenter.landmark || selectedCenter.name}. Date: ${slot.start.toLocaleDateString("en-IN")}. Time: ${formatTime(slot.start)} - ${formatTime(slot.end)}. Quantity: ${quantity} bags. Status: Pending center approval.`,
+        );
 
         // ----------------------------------------------------
         // FARMER RESPONSE+
