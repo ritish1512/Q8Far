@@ -470,8 +470,28 @@ Enter Crop Code:
           );
         }
 
+        const crop = getCropType(inputs[0]);
+        const centers = await findEligibleCenters(
+          crop,
+          inputs[1]
+        );
+        const selectedCenter = centers[centerSelection - 1];
+
+        if (!selectedCenter) {
+          return new Response(
+            "END Invalid procurement center selection.",
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/plain",
+              },
+            }
+          );
+        }
+
         return new Response(
-          `CON Enter quantity you want to sell (bags):`,
+          `CON Enter quantity you want to sell (bags):
+Minimum quantity: ${selectedCenter.minBags} bags`,
           {
             status: 200,
             headers: {
@@ -536,6 +556,18 @@ Enter Crop Code:
         if (!selectedCenter || !selectedCrop) {
           return new Response(
             "END Invalid procurement center selection.",
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "text/plain",
+              },
+            }
+          );
+        }
+
+        if (quantity < selectedCenter.minBags) {
+          return new Response(
+            `CON Enter at least ${selectedCenter.minBags} bags:`,
             {
               status: 200,
               headers: {
